@@ -1,0 +1,230 @@
+---
+title: "Final Exam Code"
+author: "Anchal Gupta"
+date: "March 13, 2018"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+```{r}
+library(rpart.plot)
+library(caret)
+library(nnet)
+library(NeuralNetTools)
+library(class)
+library(mice)
+library(neuralnet)
+
+```
+## Creating 4 different classification models using Heart Disease Dataset ##
+
+
+```{r}
+data_impute = mice(HeartDisease, m=2, maxit = 10)
+HeartDisease<- complete(data_impute,2)
+any(is.na(HeartDisease))
+
+HeartDisease$Sex<- ifelse(HeartDisease$Sex==1, "Male", "Female")
+HeartDisease$Heart.Disease<-ifelse(HeartDisease$Heart.Disease== 0, 0, 1)
+Target<- HeartDisease$Heart.Disease
+
+HeartDisease$Fasting.Blood.Sugar<- as.factor(HeartDisease$Fasting.Blood.Sugar)
+HeartDisease$Exercise.Induced.Angina<- as.factor(HeartDisease$Exercise.Induced.Angina)
+HeartDisease$Chest.Pain.Type<- as.factor(HeartDisease$Chest.Pain.Type)
+HeartDisease$Electrocardiographic.Results <- as.factor(HeartDisease$Electrocardiographic.Results)
+HeartDisease$Slope<- as.factor(HeartDisease$Slope)
+HeartDisease$Thal<- as.factor(HeartDisease$Thal)
+HeartDisease$Sex<- as.factor(HeartDisease$Sex)
+HeartDisease$Heart.Disease<- as.factor(HeartDisease$Heart.Disease)
+
+# Normalizing the numeric variables
+for(i in 1:ncol(HeartDisease))
+{
+  if(is.numeric(HeartDisease[,i])){  ####checks whether the variable is numerical , If yes, then normalize it
+    HeartDisease[,i]<- ( HeartDisease[,i]-min(HeartDisease[,i])) / (max(HeartDisease[,i])-min(HeartDisease[,i]))
+  }
+}
+
+
+absence<- subset(HeartDisease,`Heart Disease`==0)
+nrow(absence)
+presence<- subset(HeartDisease,`Heart Disease`==1)
+nrow(presence)
+
+
+##Creating Train and Test datasets
+## 75% of the sample size
+smp_size1 <- floor(0.75 * nrow(HeartDisease))
+smp_size1
+## set the seed to make your partition reproductible
+set.seed(123)
+train_ind1 <- sample(seq_len(nrow(HeartDisease)), size = smp_size1)
+HeartDisease.train1 <- HeartDisease[train_ind1, ]
+HeartDisease.test1 <- HeartDisease[-train_ind1, ]
+
+##40% of the sample size
+smp_size2 <- floor(0.40 * nrow(HeartDisease))
+smp_size2
+## set the seed to make your partition reproductible
+set.seed(123)
+train_ind2 <- sample(seq_len(nrow(HeartDisease)), size = smp_size2)
+HeartDisease.train2 <- HeartDisease[train_ind2, ]
+HeartDisease.test2 <- HeartDisease[-train_ind2, ]
+```
+
+######## Fitting a Decision Tree Model #######
+
+```{r}
+##CART decision tree
+##75% sample
+HeartDisease.CART1 <- rpart(`Heart Disease` ~ ., data = HeartDisease.train1, 
+                            method = "class")
+print(HeartDisease.CART1)
+rpart.plot(HeartDisease.CART1,type=3, digits=3, fallen.leaves= TRUE)
+
+HeartDisease.CART.predict1<- predict(HeartDisease.CART1, 
+                                     HeartDisease.test1, type="class")
+
+HeartDisease.confMatrix1= confusionMatrix(HeartDisease.CART.predict1, 
+                                        HeartDisease.test1$`Heart Disease`)
+
+HeartDisease.confMatrix1
+
+##40-60 split
+HeartDisease.CART2 <- rpart(`Heart Disease` ~ ., data = HeartDisease.train2, 
+                            method = "class")
+print(HeartDisease.CART2)
+rpart.plot(HeartDisease.CART2,type=3, digits=3, fallen.leaves= TRUE)
+
+HeartDisease.CART.predict2<- predict(HeartDisease.CART2, 
+                            HeartDisease.test2, type="class")
+
+HeartDisease.confMatrix2= confusionMatrix(table(HeartDisease.CART.predict2, 
+                          HeartDisease.test2$`Heart Disease`))
+HeartDisease.confMatrix2
+```
+
+#### Fitting a Logistic Regression #####
+
+```{r}
+##75-25  split
+HeartDisease.Logit1<- glm(`Heart Disease`~., family=binomial,
+                          data=HeartDisease.train1)
+
+summary(HeartDisease.Logit1)
+
+HeartDisease.Logit.Predict1<- predict.glm(HeartDisease.Logit1,newdata= HeartDisease.test1,type="response")
+
+confusionMatrix(HeartDisease.Logit.Predict1 >=0.5, reference= HeartDisease.test1$`Heart Disease`==1)
+
+##40-60  split
+
+HeartDiseaseRandom <- HeartDisease[sample(1:nrow(HeartDisease)), ]
+
+smp_size2 <- floor(0.40 * nrow(HeartDisease))
+smp_size2
+## set the seed to make your partition reproductible
+set.seed(123)
+train_ind2 <- sample(seq_len(nrow(HeartDiseaseRandom)), size = smp_size2)
+HeartDisease.train2 <- HeartDiseaseRandom[train_ind2, ]
+HeartDisease.test2 <- HeartDiseaseRandom[-train_ind2, ]
+
+HeartDisease.Logit2<- glm(`Heart Disease`~., family=binomial,
+                          data=HeartDisease.train2)
+
+summary(HeartDisease.Logit2)
+
+HeartDisease.Logit.Predict2<- predict.glm(HeartDisease.Logit2,newdata= HeartDisease.test2,type="response")
+
+confusionMatrix(HeartDisease.Logit.Predict2 >=0.5, reference= HeartDisease.test2$`Heart Disease`==1)
+```
+
+### Fitting a Neural Network Model ######
+
+```{r}
+##Dummy coding categorical variables###
+HeartDisease<- HeartDisease[,-c(14)]
+
+dmyVars <- dummyVars("~.", data = HeartDisease)
+HeartDisease<- as.data.frame(predict(dmyVars,newdata = HeartDisease))
+HeartDisease$Heart.Disease<- Target
+HeartDisease$Heart.Disease<- as.factor(HeartDisease$Heart.Disease)
+
+##Create test and train
+
+##75-25 split
+HeartDisease.net1<- neuralnet(Heart.Disease ~ Age + Sex.Female + Sex.Male + Chest.Pain.Type.1+Chest.Pain.Type.2+                     Chest.Pain.Type.3 + Chest.Pain.Type.4 + Blood.Pressure + Cholestoral +  
+                    Fasting.Blood.Sugar.0+ Fasting.Blood.Sugar.1 + Electrocardiographic.Results.0 +         
+                    Electrocardiographic.Results.1 + Electrocardiographic.Results.2 + Max.Heart.Rate +     
+                    Exercise.Induced.Angina.0 + Exercise.Induced.Angina.1 + Oldpeak + Slope.1 + Slope.2 + 
+                    Slope.3 + CA + Thal.3 + Thal.6 + Thal.7 ,
+                    data = HeartDisease.train1, hidden=c(12,6), learningrate=0.1,linear.output= FALSE )
+
+HeartDisease.net.predict1<- neuralnet::compute(HeartDisease.net1,HeartDisease.test1[,-c(26)])
+confusionMatrix(HeartDisease.net.predict1$net.result>=0.5, reference= HeartDisease.test1$Heart.Disease==1)
+
+plot(HeartDisease.net1, bord_col = "black")
+
+
+
+##40-60 split
+HeartDisease.net2<- neuralnet(Heart.Disease ~ Age + Sex.Female + Sex.Male + Chest.Pain.Type.1 + 
+    Chest.Pain.Type.2 + Chest.Pain.Type.3 + Chest.Pain.Type.4 + 
+    Blood.Pressure + Cholestoral + Fasting.Blood.Sugar.0 + Fasting.Blood.Sugar.1 + 
+    Electrocardiographic.Results.0 + Electrocardiographic.Results.1 + 
+    Electrocardiographic.Results.2 + Max.Heart.Rate + Exercise.Induced.Angina.0 + 
+    Exercise.Induced.Angina.1 + Oldpeak + Slope.1 + Slope.2 + 
+    Slope.3 + CA + Thal.3 + Thal.6 + Thal.7 ,
+    data = HeartDisease.train2, hidden=c(12,6), linear.output= FALSE )
+
+plot(HeartDisease.net2, bord_col = "black")
+
+HeartDisease.net.predict2<- neuralnet::compute(HeartDisease.net2, HeartDisease.test2[,-c(26)])
+confusionMatrix(HeartDisease.net.predict2$net.result>=0.5, reference= HeartDisease.test2$Heart.Disease==1)
+```
+
+###### Fitting a Knn Method ##########
+
+```{r}
+###75-25 split
+trueclass1<- HeartDisease.train1[,26]
+HeartDisease.knn1 <- knn(HeartDisease.train1[,-c(26)],
+           HeartDisease.test1[,-c(26)],
+           cl=trueclass1,
+           k=3,
+           prob=TRUE)
+
+confusionMatrix(HeartDisease.test1$`Heart Disease`, HeartDisease.knn1[1:76])
+
+####40-60 split
+trueclass2<- HeartDisease.train2[,26]
+HeartDisease.knn2 <- knn(HeartDisease.train2[,-c(26)],
+           HeartDisease.test2[,-c(26)],
+           cl=trueclass2,
+           k=3,
+           prob=TRUE)
+
+confusionMatrix(HeartDisease.test2$`Heart Disease`, HeartDisease.knn2[1:182],positive = "1")
+
+```
+
+###### Calculating Precision, Recall and F-score ######
+
+```{r}
+
+precision<-contingency[1,1]/sum(contingency[1:2,1])
+precision
+
+recall<- contingency[1,1]/sum(contingency[1,1:2])
+recall
+
+FScore<-  2 * precision * recall /(precision + recall)
+FScore
+
+```
+
+###### SVM Model ######
+
+Note that the `echo = FALSE` parameter was added to the code chunk to prevent printing of the R code that generated the plot.
